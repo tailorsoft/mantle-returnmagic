@@ -1,0 +1,312 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-2.1.xsd">
+    <service verb="query" noun="ApiGetAllReturns">
+        <in-parameters>
+            <parameter name="systemMessageRemoteId" required="true"/>
+            <parameter name="uri" default-value="returns.json"/>
+            <parameter name="pageParam">
+                <description>
+                    Pass Return Magic API the page parameter to the page to look for.
+                </description>
+            </parameter>
+            <parameter name="stateParam">
+                <description>
+                    Pass Return Magic API the state (REQUESTED, APPROVED, RECEIVED, CONTROLLED, REFUNDED, ARCHIVED, CANCELLED) parameter to be included on the call.
+                </description>
+            </parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="statusCode" type="Integer"/>
+            <parameter name="bodySize" type="Integer"/>
+            <parameter name="bodyText"/>
+        </out-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.service.message.SystemMessageRemote" value-field="remote"/>
+
+            <if condition="!remote">
+                <return error="true" message="No systemMessageRemote found for id ${systemMessageRemoteId}"/>
+            </if>
+
+            <set field="url" from="new java.net.URL(remote.receiveUrl)"/>
+            <set field="headerName" from="remote.authHeaderName ?: 'x-api-key'"/>
+
+            <script><![CDATA[
+                def restClient = ec.service.rest().
+                        method(org.moqui.util.RestClient.GET).
+                        addHeader(headerName, remote.remoteId)
+                restClient.uri().protocol(url.getProtocol()).
+                        host(url.getHost()).
+                        port(url.getDefaultPort()).
+                        path(url.getPath()).
+                        parameter("state", stateParam).
+                        parameter("page", pageParam).build()
+                org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
+                context.statusCode = restResponse.statusCode
+                context.bodyText = restResponse.jsonObject()
+                context.bodySize = bodyText.size()
+                ]]>
+            </script>
+        </actions>
+    </service>
+    <service verb="query" noun="ApiGetReturnDetail">
+        <in-parameters>
+            <parameter name="systemMessageRemoteId" required="true"/>
+            <parameter name="uri" default-value="returns.json"/>
+            <parameter name="id">
+                <description>
+                    Pass Return Magic API the ID of the return as parameter to be included on the call.
+                </description>
+            </parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="statusCode" type="Integer"/>
+            <parameter name="bodyText"/>
+        </out-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.service.message.SystemMessageRemote" value-field="remote"/>
+
+            <if condition="!remote">
+                <return error="true" message="No systemMessageRemote found for id ${systemMessageRemoteId}"/>
+            </if>
+
+            <set field="url" from="new java.net.URL(remote.receiveUrl)"/>
+            <set field="headerName" from="remote.authHeaderName ?: 'x-api-key'"/>
+
+            <script><![CDATA[
+                def restClient = ec.service.rest().
+                        method(org.moqui.util.RestClient.GET).
+                        addHeader(headerName, remote.remoteId)
+                restClient.uri().protocol(url.getProtocol()).
+                        host(url.getHost()).
+                        port(url.getDefaultPort()).
+                        path(url.getPath()+'/'+id).build()
+                org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
+                context.statusCode = restResponse.statusCode
+                context.bodyText = restResponse.jsonObject()
+                context.bodySize = bodyText.size()
+                ]]>
+            </script>
+        </actions>
+    </service>
+    <service verb="map" noun="JsonReturns">
+        <in-parameters>
+            <parameter name="confirmation" required="true"/>
+            <parameter name="id" required="true"/>
+            <parameter name="order" type="Map" required="true"/>
+            <parameter name="states" type="Map" required="true"/>
+            <parameter name="status" required="true"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="externalId"/>
+            <parameter name="originId"/>
+            <parameter name="displayId"/>
+            <parameter name="statusId"/>
+            <parameter name="entryDate" type="Timestamp"/>
+        </out-parameters>
+        <actions>
+            <!-- TODO Handle the other possible status codes -->
+            <set field="returnMoquiStatus" from="[authorized: 'ReturnCreated']"/>
+
+            <set field="externalId" from="confirmation"/>
+            <set field="originId" from="id"/>
+            <set field="displayId" from="order.number+'R'"/>
+            <set field="statusId" from="returnMoquiStatus[status]"/>
+            <set field="entryDate" from="ec.l10n.parseDate(states.REQUESTED.at, &quot;yyyy-MM-dd'T'HH:mm:ss.SSS'Z'&quot;)"/>
+        </actions>
+    </service>
+    <service verb="map" noun="JsonReturnItem">
+        <in-parameters>
+            <parameter name="confirmation" required="true"/>
+            <parameter name="id" required="true"/>
+            <parameter name="order" type="Map" required="true"/>
+            <parameter name="policy" type="Map" required="true"/>
+            <parameter name="addresses" type="Map" required="true"/>
+            <parameter name="items" type="Map" required="true"/>
+            <parameter name="states" type="Map" required="true"/>
+            <parameter name="productStoreId" required="true"/>
+            <parameter name="systemMessageRemoteId" required="true"/>
+            <parameter name="productIdTypeEnumId" default-value="PidtSku"/>
+        </in-parameters>
+        <out-parameters>
+            <!--<parameter name="returnPrice"/>-->
+            <parameter name="items"/>
+
+            <parameter name="customerEmail"/>
+            <parameter name="customerPartyId"/>
+            <parameter name="customerAddress"/>
+            <parameter name="returnLineItems"/>
+        </out-parameters>
+        <actions>
+
+            <!-- <set field="returnPrice" from="attributes.return_label_cost_amount"/>-->
+
+            <!-- Getting all the items information -->
+            <set field="itemList" from="[]"/>
+            <set field="itemName" from="''"/>
+            <set field="itemSku" from="''"/>
+            <set field="itemQuantity" from="''"/>
+            <set field="itemReason" from="''"/>
+            <set field="itemBarcode" from="''"/>
+            <set field="itemProductId" from="''"/>
+            <set field="itemProductVariant" from="''"/>
+            <script>for (String key: items.keySet()){
+                itemName = items.get(key).name
+                itemSku = items.get(key).sku
+                itemQuantity = items.get(key).qty
+                itemReason = items.get(key).code
+                itemBarcode = items.get(key).metadata.barcode
+                itemProductId = items.get(key).sku
+                itemProductVariant = items.get(key).ref.variant
+                </script>
+
+                <set field="description" value="Return Line Item: ${itemName}, Qty: ${itemQuantity}, Reason: ${itemReason}"/>
+
+                <!-- Search for the moqui return cause, either for the current store or the default returnly ones -->
+                <entity-find-one entity-name="moqui.service.message.SystemMessageEnumMap" value-field="returnCause">
+                    <field-map field-name="systemMessageRemoteId"/>
+                    <field-map field-name="mappedValue" from="itemReason"/>
+                </entity-find-one>
+
+                <if condition="returnCause">
+                    <then>
+                        <set field="returnReasonEnumId" from="returnCause.enumId"/>
+                    </then>
+                    <else>
+                        <set field="returnReasonEnumId" from="returnCause"/>
+                        <set field="description" value="SystemMessageEnumMap not found for return reason ${itemReason}"/>
+                    </else>
+                </if>
+
+                <!-- We use different values from the returnly response to search for an item -->
+                <iterate list="[itemSku, itemProductId, itemProductVariant, itemBarcode]" entry="idValue">
+                    <entity-find-one entity-name="mantle.product.ProductIdentification" value-field="product">
+                        <field-map field-name="idValue"/><field-map field-name="productIdTypeEnumId"/>
+                    </entity-find-one>
+
+                    <if condition="product">
+                        <set field="itemSku" from="product.productId"/>
+                        <break />
+                    </if>
+                </iterate>
+
+                <!-- If we didn't find any products in our db we just add the returnly sku -->
+                <if condition="!itemSku">
+                    <set field="rawSku" from="itemSku"/>
+                    <set field="description" value="Product with SKU ${rawSku} not found"/>
+                    <return />
+                </if>
+
+                <!-- We look for the order of the item -->
+                <entity-find-one entity-name="mantle.order.OrderHeaderAndPart" value-field="orderHeader">
+                    <field-map field-name="productStoreId"/>
+                    <field-map field-name="externalId" from="confirmation"/>
+                </entity-find-one>
+
+
+                <if condition="!orderHeader">
+                    <entity-find-one entity-name="mantle.order.OrderHeaderAndPart" value-field="orderHeader">
+                        <field-map field-name="productStoreId"/>
+                        <field-map field-name="displayId" from="order.number"/>
+                    </entity-find-one>
+                </if>
+
+                <if condition="orderHeader">
+                    <then>
+                        <entity-find-one entity-name="mantle.order.return.ReturnableOrderItemView" value-field="returnableItem">
+                            <field-map field-name="orderId" from="orderHeader.orderId"/>
+                            <field-map field-name="productId" from="itemSku"/>
+                        </entity-find-one>
+
+                        <if condition="!returnableItem">
+                            <set field="description" value="Product with id ${itemSku} not enabled for return on order ${orderHeader.orderId}"/>
+                            <return />
+                        </if>
+
+                        <set field="orderId" from="orderHeader.orderId"/>
+                        <set field="orderItemSeqId" from="returnableItem.orderItemSeqId"/>
+                        <set field="responseAmount" from="returnableItem.invoiceAmount"/>
+                    </then>
+                    <else>
+                        <set field="description" value="Order with externalId ${confirmation} not found for ${productStoreId}"/>
+                    </else>
+                </if>
+
+                <script>itemList.add([
+                    externalId: confirmation,
+                    orderId: orderId,
+                    rawOrderId: confirmation,
+                    orderItemSeqId: orderItemSeqId,
+                    productName: itemName,
+                    productId: itemSku,
+                    rawSku: rawSku,
+                    statusId: 'ReturnCreated',
+                    returnResponseEnumId: 'RrspManual',
+                    returnReasonEnumId: returnReasonEnumId,
+                    returnQuantity: itemQuantity,
+                    returnCause: itemReason,
+                    responseAmount: responseAmount,
+                    productBarcode: itemBarcode,
+                    description: description
+                ])
+            }</script>
+
+            <!-- Setting customer info -->
+            <if condition="orderHeader">
+                <set field="customerPartyId" from="orderHeader.customerPartyId"/>
+                <entity-find entity-name="mantle.party.contact.PartyContactMechPostalAddress" list="existingList">
+                    <econdition field-name="partyId" from="customerPartyId"/>
+                    <econdition field-name="contactMechPurposeId" from="'PostalShippingDest'"/>
+                </entity-find>
+                <entity-find entity-name="mantle.party.contact.PartyContactMechInfo" list="customer">
+                    <econdition field-name="partyId" from="customerPartyId"/>
+                    <econdition field-name="contactMechTypeEnumId" from="'CmtEmailAddress'"/>
+                </entity-find>
+
+                <set field="customerEmail" from="customer[0].infoString"/>
+                <set field="customerAddress" from="[
+                    city: existingList[0].city,
+                    address1: existingList[0].address1,
+                    countryGeoId: existingList[0].countryGeoId,
+                    postalCode: existingList[0].postalCode,
+                    stateProvinceGeoId: existingList[0].stateProvinceGeoId
+                ]"/>
+            </if>
+
+            <set field="items" from="itemList"/>
+        </actions>
+    </service>
+    <service verb="query" noun="ShopifyReturns">
+        <in-parameters>
+            <parameter name="systemMessageRemoteId" required="true"/>
+            <parameter name="uri" default-value="returns.json"/>
+            <parameter name="id"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="statusCode" type="Integer"/>
+            <parameter name="bodyText"/>
+        </out-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.service.message.SystemMessageRemote" value-field="remote"/>
+
+            <if condition="!remote">
+                <return error="true" message="No systemMessageRemote found for id ${systemMessageRemoteId}"/>
+            </if>
+
+            <set field="url" from="new java.net.URL(remote.receiveUrl)"/>
+            <set field="headerName" from="remote.authHeaderName ?: 'x-api-key'"/>
+
+            <script><![CDATA[
+                def restClient = ec.service.rest().
+                        method(org.moqui.util.RestClient.GET)
+                restClient.uri().protocol(url.getProtocol()).
+                        host("d6d63eb3d5754dfb22dab8a06a6fb47f:22bdb3f0359fa49a80cdf9f60bded90c@wwreturnly.myshopify.com").
+                        port(url.getDefaultPort()).
+                        path("admin/orders#1002/refunds.json").build()
+                org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
+                context.statusCode = restResponse.statusCode
+                context.bodyText = restResponse.jsonObject()
+                ]]>
+            </script>
+        </actions>
+    </service>
+</services>

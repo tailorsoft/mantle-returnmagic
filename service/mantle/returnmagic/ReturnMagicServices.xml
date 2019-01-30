@@ -1,0 +1,258 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<services xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:noNamespaceSchemaLocation="http://moqui.org/xsd/service-definition-2.1.xsd">
+    <service verb="get" noun="Returns">
+        <in-parameters>
+            <parameter name="systemMessageRemoteId" required="true"/>
+            <parameter name="uri" default-value="returns.json"/>
+            <parameter name="pageParam" default-value="0">
+                <description>
+                    Pass Return Magic API the page parameter to the page to look for.
+                </description>
+            </parameter>
+            <parameter name="stateParam" default-value="APPROVED">
+                <description>
+                     Pass Return Magic API the state (REQUESTED, APPROVED, RECEIVED, CONTROLLED, REFUNDED, ARCHIVED, CANCELLED) parameter to be included on the call.
+                     Default = APPROVED.
+                </description>
+            </parameter>
+            <parameter name="prevList"/>
+            <parameter name="minUpdatedTime" type="Timestamp"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="bodyText"/>
+        </out-parameters>
+        <actions>
+            <if condition="minUpdatedTime">
+                <set field="min_updated_at" from="ec.l10n.format(minUpdatedTime, &quot;yyyy-MM-dd'T'HH:mm:ss.SSS'Z'&quot;)"/>
+            </if>
+            <service-call name="mantle.returnmagic.ApiServices.query#ApiGetAllReturns" in-map="context" out-map="context"/>
+
+            <if condition="statusCode != 200">
+                <return error="true" message="Error querying Return Magic API: ${bodyText}"/>
+            </if>
+        </actions>
+    </service>
+    <service verb="get" noun="ReturnDetails">
+        <in-parameters>
+            <parameter name="systemMessageRemoteId" required="true"/>
+            <parameter name="uri" default-value="returns.json"/>
+            <parameter name="id">
+                <description>
+                    Pass Return Magic API the ID of the return as parameter to be included on the call.
+                </description>
+            </parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="bodyText"/>
+        </out-parameters>
+        <actions>
+            <service-call name="mantle.returnmagic.ApiServices.query#ApiGetReturnDetail" in-map="context" out-map="context"/>
+
+            <if condition="statusCode != 200">
+                <return error="true" message="Error querying Return Magic API: ${bodyText}"/>
+            </if>
+        </actions>
+    </service>
+    <service verb="get" noun="ApprovedReturns">
+        <in-parameters>
+            <parameter name="systemMessageRemoteId" required="true"/>
+            <parameter name="minUpdatedTime" type="Timestamp"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="bodyText"/>
+            <parameter name="moquiReturns"/>
+        </out-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.service.message.SystemMessageRemote" value-field="remote"/>
+
+            <if condition="!remote">
+                <return error="true" message="No systemMessageRemote found for id ${systemMessageRemoteId}"/>
+            </if>
+
+            <set field="productStore" from="remote.'mantle.product.store.ProductStore'"/>
+
+            <if condition="!productStore">
+                <return error="true" message="No product store found for remote = ${systemMessageRemoteId}"/>
+            </if>
+
+            <!-- Look for all the returns approved-->
+            <set field="stateParam" from="APPROVED"/>
+            <service-call name="mantle.returnmagic.ReturnMagicServices.get#Returns" out-map="context" in-map="context"/>
+
+            <!-- If the list of returns is greater than 20 we should keep looking for all - ->
+            <if condition="context.bodySize == 20">
+                <set field="pageParam" from="pageParam++"/>
+                <set field="prevList" from="context.bodyText"/>
+                <service-call name="mantle.returnmagic.ReturnMagicServices.get#Returns" in-map="context" out-map="outList"/>
+                <script><![CDATA[
+                    if (outList != []) {
+                        outList.each { prevList.add(${it}) }
+                    }
+                    context.bodyText = prevList
+                ]]></script>
+                <else>
+                    <set field="bodyText" from="bodyText"/>
+                </else>
+            </if>
+
+            <!- -  Data shared accross new returns -->
+            <set field="facilityId" from="productStore.inventoryFacilityId"/>
+            <set field="vendorPartyId" from="productStore.organizationPartyId"/>
+
+            <set field="moquiReturns" from="[]"/>
+
+            <iterate list="bodyText" entry="rawReturn">
+                <if condition="!rawReturn.states">
+                    <log message="*** Return Magic with ID ${rawReturn.confirmation} has no states. Skipping!!" />
+                    <continue />
+                </if>
+
+                <service-call name="mantle.returnmagic.ApiServices.map#JsonReturns" in-map="rawReturn" out-map="returnData" out-map-add-to-existing="false"/>
+
+                <set field="returnData.productIdTypeEnumId" from="productIdTypeEnumId"/>-->
+
+                <service-call name="mantle.returnmagic.ApiServices.query#ApiGetReturnDetail" in-map="[systemMessageRemoteId: systemMessageRemoteId, id: returnData.originId]" out-map="returnDetail" out-map-add-to-existing="false"/>
+
+                <service-call name="mantle.returnmagic.ApiServices.map#JsonReturnItem" in-map="returnDetail.bodyText + [productStoreId: productStore.productStoreId, systemMessageRemoteId: systemMessageRemoteId]" out-map="returnDetailData" out-map-add-to-existing="false"/>
+
+                <script>moquiReturns.add(returnData + returnDetailData + [facilityId: facilityId, vendorPartyId: vendorPartyId, systemMessageRemoteId: systemMessageRemoteId])</script>
+            </iterate>
+        </actions>
+    </service>
+    <service verb="save" noun="NewReturn">
+        <description>
+            Takes a Map build from the return magic json, runs some basic validations on moqui and, if they succeed,
+            creates an approves a new return. This service might error out due to several conditions (incomplete info, item returnQuantity, etc),
+            so it is adviced to use a safe block when calling it inside a loop.
+        </description>
+        <in-parameters>
+            <auto-parameters entity-name="mantle.order.return.ReturnHeader" include="nonpk">
+                <exclude field-name="visitId"/>
+            </auto-parameters>
+            <parameter name="customerAddress" type="Map" required="true"/>
+            <parameter name="items" type="List" required="true"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="returnId"/>
+        </out-parameters>
+        <actions>
+            <if condition="!externalId || !customerPartyId">
+                <return error="true" message="Incomplete return basic data"/>
+            </if>
+
+            <if condition="!customerAddress.city || !customerAddress.countryGeoId || !customerAddress.address1">
+                <return error="true" message="Incomplete address ${customerAddress} data for return"/>
+            </if>
+
+            <!-- We search for a postal address for the customer of the return. If we don't find
+                a match, we will create a new one -->
+            <entity-find entity-name="mantle.party.contact.PartyContactMechPostalAddress" list="existingList">
+                <econdition field-name="partyId" from="customerPartyId"/>
+                <econdition field-name="city" from="customerAddress.city"/>
+                <econdition field-name="address1" from="customerAddress.address1"/>
+                <econdition field-name="countryGeoId" from="customerAddress.countryGeoId"/>
+                <econdition field-name="postalCode" from="customerAddress.postalCode" ignore-if-empty="true"/>
+                <econdition field-name="stateProvinceGeoId" from="customerAddress.stateProvinceGeoId" ignore-if-empty="true"/>
+            </entity-find>
+
+            <if condition="existingList">
+                <then>
+                    <set field="postalContactMechId" from="existingList[0].contactMechId"/>
+                </then>
+                <else>
+                    <service-call name="mantle.party.ContactServices.create#PostalAddress" out-map="newAddress"
+                        in-map="customerAddress + [partyId: customerPartyId, contactMechPurposeId: 'PostalPurchReturn']"/>
+
+                    <set field="postalContactMechId" from="newAddress.contactMechId"/>
+                </else>
+            </if>
+
+            <service-call name="mantle.order.ReturnServices.create#Return" in-map="context" out-map="context"/>
+
+            <set field="itemsToReturn" from="[]"/>
+
+            <!-- We need to calculate what other items need to be added to the return (tax, discount, etc.) -->
+            <iterate list="items" entry="returnProduct">
+                <if condition="returnProduct.totalRefundAmount">
+                    <service-call name="mantle.returnmagic.ApiServices.get#ApiGetReturnDetail" in-map="returnProduct" out-map="extraItems"/>
+
+                    <set field="returnProduct.responseAmount" from="extraItems.responseAmount"/>
+                    <if condition="extraItems.itemChildren">
+                        <script>itemsToReturn.addAll(extraItems.itemChildren)</script>
+                    </if>
+                </if>
+
+                <script>itemsToReturn.add(returnProduct)</script>
+            </iterate>
+
+            <iterate list="itemsToReturn" entry="returnItem">
+                <!-- Some items from returnly might not be valid in moqui (externalId not found, order not found, product not in order) -->
+                <service-call name="mantle.order.ReturnServices.add#OrderItemToReturn" in-map="returnItem + [returnId: returnId]"
+                    out-map="newReturnItem"/>
+
+                <!-- OrderItemToReturn skips responseAmount as parameter, so we need to manually update it -->
+                <if condition="returnItem.responseAmount">
+                    <service-call name="update#mantle.order.return.ReturnItem"
+                        in-map="[returnId: returnId, returnItemSeqId: newReturnItem.returnItemSeqId, responseAmount: returnItem.responseAmount]"/>
+                </if>
+            </iterate>
+
+            <service-call name="mantle.order.ReturnServices.approve#Return" in-map="[returnId: returnId]"/>
+        </actions>
+    </service>
+    <service verb="import" noun="Returns">
+        <in-parameters>
+            <parameter name="systemMessageRemoteId" required="true"/>
+            <parameter name="minUpdatedTime" type="Timestamp"/>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="returnIdList"/>
+        </out-parameters>
+        <actions>
+            <service-call name="mantle.returnmagic.ReturnMagicServices.get#ApprovedReturns" in-map="context"
+                out-map="apiResponse"/>
+
+            <set field="returnIdList" from="[]"/>
+            <iterate list="apiResponse.moquiReturns" entry="moquiReturn">
+                <log message="======== moquiReturns: ${groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(moquiReturn))}"/>
+
+                <!-- Look for an already created return. Only re import if the return is cancelled -->
+                <entity-find-count entity-name="mantle.order.return.ReturnHeader" count-field="existingReturns">
+                    <econdition field-name="externalId" from="moquiReturn.externalId"/>
+                    <econdition field-name="facilityId" from="moquiReturn.facilityId"/>
+                    <econdition field-name="vendorPartyId" from="moquiReturn.vendorPartyId"/>
+                    <econdition field-name="statusId" operator="not-equals" value="ReturnCancelled"/>
+                </entity-find-count>
+
+                <log message="---------- existingReturns is: ${existingReturns}:${moquiReturn.externalId} ----------"/>
+                <if condition="existingReturns &gt; 0">
+                    <log message="Return Magic return with id ${moquiReturn.externalId} and vendor ${moquiReturn.vendorPartyId} already exists."/>
+                    <continue />
+                </if>
+
+                <!-- We filter out invalid items before saving the return -->
+                <set field="moquiReturn.items" from="moquiReturn.items.findAll { it.orderItemSeqId &amp;&amp; it.returnReasonEnumId }"/>
+
+                <if condition="!moquiReturn.items">
+                    <log message="Return Magic return with id ${moquiReturn.externalId} has no valid items. Skipping"/>
+                    <continue />
+                </if>
+
+                <script><![CDATA[
+                    try{
+                        def newReturn = ec.service.sync().requireNewTransaction(true)
+                                        .name("mantle.returnmagic.ReturnMagicServices.save#NewReturn")
+                                        .parameters(moquiReturn)
+                                        .call()
+
+                        if(newReturn?.returnId)
+                            returnIdList.add(newReturn.returnId)
+                    } catch (Throwable t) {
+                        ec.logger.log(300, 'Error adding return with id ' + moquiReturn.externalId, t)
+                    }
+                ]]></script>
+
+            </iterate>
+        </actions>
+    </service>
+</services>
