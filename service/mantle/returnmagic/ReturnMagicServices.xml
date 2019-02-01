@@ -365,7 +365,7 @@
             <set field="moquiReturn" from="new groovy.json.JsonSlurper().parseText(systemMessage.messageText)"/>
 
             <if condition="!moquiReturn.customerPartyId">
-                <return error="true" message="The return doesn't have a valid customer ${moquiReturn]"/>
+                <return error="true" message="The return doesn't have a valid customer ${moquiReturn}"/>
             </if>
 
             <!-- We filter out invalid items before saving the return -->
