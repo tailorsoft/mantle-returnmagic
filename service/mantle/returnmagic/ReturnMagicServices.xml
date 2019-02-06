@@ -315,7 +315,6 @@
                     <field-map field-name="systemMessageRemoteId"/>
                     <field-map field-name="systemMessageTypeId"/>
                 </entity-find-one>
-
                 <if condition="importedReturn">
                     <then>
                         <!-- If we don't want to reimport or the systemMessage is already consumed we skip -->
@@ -342,8 +341,7 @@
                     </else>
                 </if>
 
-                <service-call name="org.moqui.impl.SystemMessageServices.consume#ReceivedSystemMessage" transaction="force-new"
-                           in-map="[systemMessageId: systemMessageId, allowError: allowError]"/>
+                <service-call name="org.moqui.impl.SystemMessageServices.consume#ReceivedSystemMessage" transaction="force-new" in-map="[systemMessageId: systemMessageId, allowError: allowError]"/>
             </iterate>
 
             <service-call name="update#brandedonline.integration.IntegrationExternalMessageLog" transaction="force-new"

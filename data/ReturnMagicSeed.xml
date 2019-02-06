@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<entity-facade-xml type="seed">
+    <moqui.service.message.SystemMessageType systemMessageTypeId="ReturnMagicDataImport"
+        description="Return Magic Data Import"
+        receiveServiceName="org.moqui.impl.SystemMessageServices.receive#IncomingSystemMessage"
+        consumeServiceName="mantle.returnmagic.ReturnMagicServices.consume#ReturnMessage"/>
+</entity-facade-xml>
