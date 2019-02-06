@@ -48,7 +48,7 @@ class ReturnMagicTests extends Specification {
             Map bodyText = ec.service.sync().name("mantle.returnmagic.ReturnMagicServices.get#Returns")
                 .parameters([systemMessageRemoteId: systemMessageRemoteId, uri: uri, stateParam: stateParam])
                 .call()
-            logger.info("\n===== The output of returns is =====\n${bodyText}")
+            //logger.info("\n===== The output of returns is =====\n${bodyText}")
         then:
             bodyText != null
     }
@@ -62,7 +62,7 @@ class ReturnMagicTests extends Specification {
             Map bodyText = ec.service.sync().name("mantle.returnmagic.ReturnMagicServices.get#ReturnDetails")
                 .parameters([systemMessageRemoteId: systemMessageRemoteId, uri: uri, id: id])
                 .call()
-            logger.info("\n===== The output of returns details is =====\n${bodyText}")
+            //logger.info("\n===== The output of returns details is =====\n${bodyText}")
         then:
             bodyText != null
     }
@@ -74,7 +74,7 @@ class ReturnMagicTests extends Specification {
             Map moquiReturns = ec.service.sync().name("mantle.returnmagic.ReturnMagicServices.get#ApprovedReturns")
                 .parameters([systemMessageRemoteId: systemMessageRemoteId])
                 .call()
-            logger.info("\n===== The output of approved returns is =====\n${moquiReturns}")
+            //logger.info("\n===== The output of approved returns is =====\n${moquiReturns}")
         then:
             moquiReturns != null
     }
@@ -83,11 +83,10 @@ class ReturnMagicTests extends Specification {
         given:
             def systemMessageRemoteId = "SpyReturnMagicRemote"
         when:
-            Map returnIdList = ec.service.sync().name("mantle.returnmagic.ReturnMagicServices.import#ReturnMagicReturns")
+            ec.service.sync().name("mantle.returnmagic.ReturnMagicServices.import#ReturnMagicReturns")
                 .parameters([systemMessageRemoteId: systemMessageRemoteId])
                 .call()
-            logger.info("\n===== The output of import returns is =====\n${returnIdList}")
         then:
-            returnIdList != null
+            logger.info("\n===== The import returns service test end =====")
     }
 }
