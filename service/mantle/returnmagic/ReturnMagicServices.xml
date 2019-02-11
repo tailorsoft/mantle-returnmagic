@@ -61,6 +61,7 @@
         <out-parameters>
             <parameter name="bodyText"/>
             <parameter name="moquiReturns"/>
+            <parameter name="apiResponses"/>
         </out-parameters>
         <actions>
             <entity-find-one entity-name="moqui.service.message.SystemMessageRemote" value-field="remote"/>
@@ -80,6 +81,8 @@
             <service-call name="mantle.returnmagic.ReturnMagicServices.get#Returns" out-map="context" in-map="context"/>
 
             <!-- If the list of returns is greater than 20 we should keep looking for all - ->
+            <set field="pageParam" from="0"/>
+            <set field="context.bodySize" from="0"/>
             <if condition="context.bodySize == 20">
                 <set field="pageParam" from="pageParam++"/>
                 <set field="prevList" from="context.bodyText"/>
@@ -100,6 +103,7 @@
             <set field="vendorPartyId" from="productStore.organizationPartyId"/>
 
             <set field="moquiReturns" from="[]"/>
+            <set field="apiResponses" from="[]"/>
 
             <iterate list="bodyText" entry="rawReturn">
                 <if condition="!rawReturn.states">
@@ -116,6 +120,7 @@
                 <service-call name="mantle.returnmagic.ApiServices.map#JsonReturnItem" in-map="returnDetail.bodyText + [productStoreId: productStore.productStoreId, systemMessageRemoteId: systemMessageRemoteId]" out-map="returnDetailData" out-map-add-to-existing="false"/>
 
                 <script>moquiReturns.add(returnData + returnDetailData + [facilityId: facilityId, vendorPartyId: vendorPartyId, systemMessageRemoteId: systemMessageRemoteId])</script>
+                <script>apiResponses.add(rawReturn + returnDetail.bodyText)</script>
             </iterate>
         </actions>
     </service>
@@ -306,8 +311,14 @@
             <iterate list="apiResponse.moquiReturns" entry="moquiReturn">
                 <set field="messageId" from="moquiReturn.externalId"/>
                 <set field="remoteMessageId" from="moquiReturn.displayId"/>
-                <set field="messageText" from="groovy.json.JsonOutput.toJson(moquiReturn)"/>
                 <set field="allowError" from="false"/>
+
+                <iterate list="apiResponse.apiResponses" entry="eachReturnMagic">
+                    <if condition="eachReturnMagic.externalId == moquiReturn.externalId">
+                        <set field="messageText" from="eachReturnMagic"/>
+                        <break/>
+                    </if>
+                </iterate>
 
                 <!-- Look for an already imported return. Each return should only be imported once -->
                 <entity-find-one entity-name="moqui.service.message.SystemMessage" value-field="importedReturn">

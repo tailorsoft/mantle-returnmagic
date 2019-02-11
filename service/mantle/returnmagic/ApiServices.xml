@@ -33,7 +33,7 @@
             <script><![CDATA[
                 def restClient = ec.service.rest().
                         method(org.moqui.util.RestClient.GET).
-                        addHeader(headerName, remote.remoteId)
+                        addHeader(headerName, remote.password)
                 restClient.uri().protocol(url.getProtocol()).
                         host(url.getHost()).
                         port(url.getDefaultPort()).
@@ -75,7 +75,7 @@
             <script><![CDATA[
                 def restClient = ec.service.rest().
                         method(org.moqui.util.RestClient.GET).
-                        addHeader(headerName, remote.remoteId)
+                        addHeader(headerName, remote.password)
                 restClient.uri().protocol(url.getProtocol()).
                         host(url.getHost()).
                         port(url.getDefaultPort()).
@@ -177,7 +177,7 @@
                     </else>
                 </if>
 
-                <!-- We use different values from the returnly response to search for an item -->
+                <!-- We use different values from the return magic response to search for an item -->
                 <iterate list="[itemSku, itemProductId, itemProductVariant, itemBarcode]" entry="idValue">
                     <entity-find-one entity-name="mantle.product.ProductIdentification" value-field="product">
                         <field-map field-name="idValue"/><field-map field-name="productIdTypeEnumId"/>
@@ -225,6 +225,13 @@
                         <set field="orderId" from="orderHeader.orderId"/>
                         <set field="orderItemSeqId" from="returnableItem.orderItemSeqId"/>
                         <set field="responseAmount" from="returnableItem.invoiceAmount"/>
+
+                        <set field="returnResponseEnumId" from="'RrspManual'"/>
+                        <if condition="policy.refund_code">
+                            <if condition="policy.refund_code == 'CREDIT'">
+                                <set field="returnResponseEnumId" from="'RrspCredit'"/>
+                            </if>
+                        </if>
                     </then>
                     <else>
                         <set field="description" value="Order with externalId ${confirmation} not found for ${productStoreId}"/>
@@ -240,7 +247,7 @@
                     productId: itemSku,
                     rawSku: rawSku,
                     statusId: 'ReturnCreated',
-                    returnResponseEnumId: 'RrspManual',
+                    returnResponseEnumId: returnResponseEnumId,
                     returnReasonEnumId: returnReasonEnumId,
                     returnQuantity: itemQuantity,
                     returnCause: itemReason,
