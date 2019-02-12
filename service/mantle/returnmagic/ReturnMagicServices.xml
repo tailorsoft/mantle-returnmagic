@@ -314,7 +314,7 @@
                 <set field="allowError" from="false"/>
 
                 <iterate list="apiResponse.apiResponses" entry="eachReturnMagic">
-                    <if condition="eachReturnMagic.externalId == moquiReturn.externalId">
+                    <if condition="eachReturnMagic.confirmation == moquiReturn.externalId">
                         <set field="messageText" from="eachReturnMagic"/>
                         <break/>
                     </if>
