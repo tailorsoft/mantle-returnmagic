@@ -95,13 +95,29 @@
             <parameter name="order" type="Map" required="true"/>
             <parameter name="states" type="Map" required="true"/>
             <parameter name="status" required="true"/>
+            <parameter name="policy" type="Map" required="true"/>
+            <parameter name="addresses" type="Map" required="true"/>
+            <parameter name="items" type="Map" required="true"/>
+            <parameter name="productStoreId" required="true"/>
+            <parameter name="systemMessageRemoteId" required="true"/>
+            <parameter name="productIdTypeEnumId" default-value="PidtSku"/>
+            <parameter name="facilityId" required="true"/>
+            <parameter name="vendorPartyId" required="true"/>
         </in-parameters>
         <out-parameters>
             <parameter name="externalId"/>
             <parameter name="originId"/>
             <parameter name="displayId"/>
             <parameter name="statusId"/>
-            <parameter name="entryDate" type="Timestamp"/>
+
+            <parameter name="customerEmail"/>
+            <parameter name="customerPartyId"/>
+            <parameter name="customerAddress"/>
+
+            <parameter name="items"/>
+
+            <parameter name="facilityId"/>
+            <parameter name="vendorPartyId"/>
         </out-parameters>
         <actions>
             <!-- TODO Handle the other possible status codes -->
@@ -111,34 +127,6 @@
             <set field="originId" from="id"/>
             <set field="displayId" from="order.number+'R'"/>
             <set field="statusId" from="returnMoquiStatus[status]"/>
-            <set field="entryDate" from="ec.l10n.parseDate(states.REQUESTED.at, &quot;yyyy-MM-dd'T'HH:mm:ss.SSS'Z'&quot;)"/>
-        </actions>
-    </service>
-    <service verb="map" noun="JsonReturnItem">
-        <in-parameters>
-            <parameter name="confirmation" required="true"/>
-            <parameter name="id" required="true"/>
-            <parameter name="order" type="Map" required="true"/>
-            <parameter name="policy" type="Map" required="true"/>
-            <parameter name="addresses" type="Map" required="true"/>
-            <parameter name="items" type="Map" required="true"/>
-            <parameter name="states" type="Map" required="true"/>
-            <parameter name="productStoreId" required="true"/>
-            <parameter name="systemMessageRemoteId" required="true"/>
-            <parameter name="productIdTypeEnumId" default-value="PidtSku"/>
-        </in-parameters>
-        <out-parameters>
-            <!--<parameter name="returnPrice"/>-->
-            <parameter name="items"/>
-
-            <parameter name="customerEmail"/>
-            <parameter name="customerPartyId"/>
-            <parameter name="customerAddress"/>
-            <parameter name="returnLineItems"/>
-        </out-parameters>
-        <actions>
-
-            <!-- <set field="returnPrice" from="attributes.return_label_cost_amount"/>-->
 
             <!-- Getting all the items information -->
             <set field="itemList" from="[]"/>
@@ -228,7 +216,7 @@
 
                         <set field="returnResponseEnumId" from="'RrspManual'"/>
                         <if condition="policy.refund_code">
-                            <if condition="policy.refund_code == 'CREDIT'">
+                            <if condition="policy.refund_code == 'CARD'">
                                 <set field="returnResponseEnumId" from="'RrspCredit'"/>
                             </if>
                         </if>
@@ -280,40 +268,6 @@
             </if>
 
             <set field="items" from="itemList"/>
-        </actions>
-    </service>
-    <service verb="query" noun="ShopifyReturns">
-        <in-parameters>
-            <parameter name="systemMessageRemoteId" required="true"/>
-            <parameter name="uri" default-value="returns.json"/>
-            <parameter name="id"/>
-        </in-parameters>
-        <out-parameters>
-            <parameter name="statusCode" type="Integer"/>
-            <parameter name="bodyText"/>
-        </out-parameters>
-        <actions>
-            <entity-find-one entity-name="moqui.service.message.SystemMessageRemote" value-field="remote"/>
-
-            <if condition="!remote">
-                <return error="true" message="No systemMessageRemote found for id ${systemMessageRemoteId}"/>
-            </if>
-
-            <set field="url" from="new java.net.URL(remote.receiveUrl)"/>
-            <set field="headerName" from="remote.authHeaderName ?: 'x-api-key'"/>
-
-            <script><![CDATA[
-                def restClient = ec.service.rest().
-                        method(org.moqui.util.RestClient.GET)
-                restClient.uri().protocol(url.getProtocol()).
-                        host("d6d63eb3d5754dfb22dab8a06a6fb47f:22bdb3f0359fa49a80cdf9f60bded90c@wwreturnly.myshopify.com").
-                        port(url.getDefaultPort()).
-                        path("admin/orders#1002/refunds.json").build()
-                org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
-                context.statusCode = restResponse.statusCode
-                context.bodyText = restResponse.jsonObject()
-                ]]>
-            </script>
         </actions>
     </service>
 </services>

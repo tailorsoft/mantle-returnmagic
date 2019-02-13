@@ -16,15 +16,11 @@
                 </description>
             </parameter>
             <parameter name="prevList"/>
-            <parameter name="minUpdatedTime" type="Timestamp"/>
         </in-parameters>
         <out-parameters>
             <parameter name="bodyText"/>
         </out-parameters>
         <actions>
-            <if condition="minUpdatedTime">
-                <set field="min_updated_at" from="ec.l10n.format(minUpdatedTime, &quot;yyyy-MM-dd'T'HH:mm:ss.SSS'Z'&quot;)"/>
-            </if>
             <service-call name="mantle.returnmagic.ApiServices.query#ApiGetAllReturns" in-map="context" out-map="context"/>
 
             <if condition="statusCode != 200">
@@ -56,11 +52,10 @@
     <service verb="get" noun="ApprovedReturns">
         <in-parameters>
             <parameter name="systemMessageRemoteId" required="true"/>
-            <parameter name="minUpdatedTime" type="Timestamp"/>
         </in-parameters>
         <out-parameters>
-            <parameter name="bodyText"/>
-            <parameter name="moquiReturns"/>
+            <!--<parameter name="bodyText"/>
+            <parameter name="moquiReturns"/>-->
             <parameter name="apiResponses"/>
         </out-parameters>
         <actions>
@@ -70,11 +65,14 @@
                 <return error="true" message="No systemMessageRemote found for id ${systemMessageRemoteId}"/>
             </if>
 
+            <!--  Data shared accross new returns -->
             <set field="productStore" from="remote.'mantle.product.store.ProductStore'"/>
-
             <if condition="!productStore">
                 <return error="true" message="No product store found for remote = ${systemMessageRemoteId}"/>
             </if>
+
+            <set field="facilityId" from="productStore.inventoryFacilityId"/>
+            <set field="vendorPartyId" from="productStore.organizationPartyId"/>
 
             <!-- Look for all the returns approved-->
             <set field="stateParam" from="APPROVED"/>
@@ -98,11 +96,7 @@
                 </else>
             </if>
 
-            <!- -  Data shared accross new returns -->
-            <set field="facilityId" from="productStore.inventoryFacilityId"/>
-            <set field="vendorPartyId" from="productStore.organizationPartyId"/>
-
-            <set field="moquiReturns" from="[]"/>
+            <!- -<set field="moquiReturns" from="[]"/>-->
             <set field="apiResponses" from="[]"/>
 
             <iterate list="bodyText" entry="rawReturn">
@@ -111,16 +105,9 @@
                     <continue />
                 </if>
 
-                <service-call name="mantle.returnmagic.ApiServices.map#JsonReturns" in-map="rawReturn" out-map="returnData" out-map-add-to-existing="false"/>
+                <service-call name="mantle.returnmagic.ApiServices.query#ApiGetReturnDetail" in-map="[systemMessageRemoteId: systemMessageRemoteId, id: rawReturn.id]" out-map="returnDetail" out-map-add-to-existing="false"/>
 
-                <set field="returnData.productIdTypeEnumId" from="productIdTypeEnumId"/>-->
-
-                <service-call name="mantle.returnmagic.ApiServices.query#ApiGetReturnDetail" in-map="[systemMessageRemoteId: systemMessageRemoteId, id: returnData.originId]" out-map="returnDetail" out-map-add-to-existing="false"/>
-
-                <service-call name="mantle.returnmagic.ApiServices.map#JsonReturnItem" in-map="returnDetail.bodyText + [productStoreId: productStore.productStoreId, systemMessageRemoteId: systemMessageRemoteId]" out-map="returnDetailData" out-map-add-to-existing="false"/>
-
-                <script>moquiReturns.add(returnData + returnDetailData + [facilityId: facilityId, vendorPartyId: vendorPartyId, systemMessageRemoteId: systemMessageRemoteId])</script>
-                <script>apiResponses.add(rawReturn + returnDetail.bodyText)</script>
+                <script>apiResponses.add(rawReturn + returnDetail.bodyText + [productStoreId: productStore.productStoreId, facilityId: facilityId, vendorPartyId: vendorPartyId, systemMessageRemoteId: systemMessageRemoteId])</script>
             </iterate>
         </actions>
     </service>
@@ -205,23 +192,36 @@
             <service-call name="mantle.order.ReturnServices.approve#Return" in-map="[returnId: returnId]"/>
         </actions>
     </service>
-    <service verb="import" noun="Returns">
+    <service verb="import" noun="ReturnMagicTest">
+        <description>This service is only created for test propose, to test the import without importing</description>
         <in-parameters>
-            <parameter name="systemMessageRemoteId" required="true"/>
-            <parameter name="minUpdatedTime" type="Timestamp"/>
+            <parameter name="systemMessageRemoteId" default-value="SpyReturnMagicRemote" required="true"/>
         </in-parameters>
         <out-parameters>
             <parameter name="returnIdList"/>
         </out-parameters>
         <actions>
             <service-call name="mantle.returnmagic.ReturnMagicServices.get#ApprovedReturns" in-map="context"
-                out-map="apiResponse"/>
+                out-map="context"/>
 
             <set field="returnIdList" from="[]"/>
-            <iterate list="apiResponse.moquiReturns" entry="moquiReturn">
-                <log message="======== moquiReturns: ${groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(moquiReturn))}"/>
+            
+            <iterate list="apiResponses" entry="apiResponse">
+                <service-call name="mantle.returnmagic.ApiServices.map#JsonReturns" in-map="apiResponse" out-map="moquiReturn" out-map-add-to-existing="false"/>
+                <log message="\nThe moquiReturn is ${moquiReturn}\n"/>
 
-                <!-- Look for an already created return. Only re import if the return is cancelled -->
+                <if condition="!moquiReturn.customerPartyId">
+                    <log message="\nThe return with externalId ${moquiReturn.externalId} doesn't have a valid customer ${moquiReturn.customerPartyId}\n"/>
+                    <continue/>
+                </if>
+
+                <set field="invalidItems" from="moquiReturn.items.findAll { !it.orderItemSeqId || !it.returnReasonEnumId }"/>
+
+                <if condition="invalidItems">
+                    <log message="\nThe return with externalId ${moquiReturn.externalId} has the following invalid items:\n${groovy.json.JsonOutput.toJson(invalidItems)}\n"/>
+                    <continue/>
+                </if>
+
                 <entity-find-count entity-name="mantle.order.return.ReturnHeader" count-field="existingReturns">
                     <econdition field-name="externalId" from="moquiReturn.externalId"/>
                     <econdition field-name="facilityId" from="moquiReturn.facilityId"/>
@@ -229,47 +229,19 @@
                     <econdition field-name="statusId" operator="not-equals" value="ReturnCancelled"/>
                 </entity-find-count>
 
-                <log message="---------- existingReturns is: ${existingReturns}:${moquiReturn.externalId} ----------"/>
                 <if condition="existingReturns &gt; 0">
-                    <log message="Return Magic return with id ${moquiReturn.externalId} and vendor ${moquiReturn.vendorPartyId} already exists."/>
-                    <continue />
+                    <log message="\nA return with externalId ${moquiReturn.externalId} and vendor ${moquiReturn.vendorPartyId} already exists\n"/>
+                    <continue/>
                 </if>
 
-                <!-- We filter out invalid items before saving the return -->
-                <set field="moquiReturn.items" from="moquiReturn.items.findAll { it.orderItemSeqId &amp;&amp; it.returnReasonEnumId }"/>
-
-                <if condition="!moquiReturn.items">
-                    <log message="Return Magic return with id ${moquiReturn.externalId} has no valid items. Skipping"/>
-                    <continue />
-                </if>
-
-                <script><![CDATA[
-                    try{
-                        def newReturn = ec.service.sync().requireNewTransaction(true)
-                                        .name("mantle.returnmagic.ReturnMagicServices.save#NewReturn")
-                                        .parameters(moquiReturn)
-                                        .call()
-
-                        if(newReturn?.returnId)
-                            returnIdList.add(newReturn.returnId)
-                    } catch (Throwable t) {
-                        ec.logger.log(300, 'Error adding return with id ' + moquiReturn.externalId, t)
-                    }
-                ]]></script>
-
+                <script>returnIdList.add(moquiReturn.externalId + " - " + moquiReturn.vendorPartyId)</script>
             </iterate>
         </actions>
     </service>
     <service verb="import" noun="ReturnMagicReturns">
         <in-parameters>
-            <parameter name="systemMessageRemoteId" required="true"/>
+            <parameter name="systemMessageRemoteId" default-value="SpyReturnMagicRemote" required="true"/>
             <parameter name="systemMessageTypeId" default-value="ReturnMagicDataImport"/>
-            <parameter name="fromDate" type="Timestamp">
-                <description>Used to limit the returns we want to get from the API</description>
-            </parameter>
-            <parameter name="jobName">
-                <description>If this service is run from a job and no fromDate is provided, we use the time of the last run</description>
-            </parameter>
             <parameter name="internalEnumId" default-value="ObjReturn">
                 <description>Used when generating the IntegrationSystemMessage</description>
             </parameter>
@@ -278,47 +250,41 @@
         <actions>
             <entity-find-one entity-name="moqui.service.message.SystemMessageRemote" value-field="remote"/>
 
-            <if condition="!remote"><return error="true" message="No systemMessageRemote found with id ${systemMessageRemoteId}"/></if>
+            <if condition="!remote">
+                <return error="true" message="No systemMessageRemote found with id ${systemMessageRemoteId}"/>
+            </if>
 
             <if condition="!remote.receiveUrl || !remote.password">
                 <return error="true" message="SystemMessageRemote ${systemMessageRemoteId} is missing api endpoint and/or key configurations" />
             </if>
 
-            <if condition="!fromDate">
-                <service-call name="brandedonline.integrations.ReturnOrderServices.get#LastValidRun"
-                    in-map="context" out-map="lastRun"/>
-                <set field="fromDate" from="lastRun.validTimestamp"/>
-            </if>
-
             <service-call name="create#brandedonline.integration.IntegrationExternalMessageLog" transaction="force-new"
                 out-map="messageLog" in-map="[serviceName: 'mantle.returnmagic.ReturnMagicServices.import#ReturnMagicReturns',
-                    statusId: 'IntegrationPreparing', internalEnumId: internalEnumId,
-                    directionEnumId: 'IntDirInbound', integrationCategoryEnumId: 'IntCatReturn', processedDate: ec.user.nowTimestamp,
-                    serviceParameters: groovy.json.JsonOutput.toJson([systemMessageRemoteId: systemMessageRemoteId, fromDate: fromDate,
-                        jobName: jobName, internalEnumId: internalEnumId, allowReimport: allowReimport])]"/>
+                    statusId: 'IntegrationPreparing', internalEnumId: internalEnumId, directionEnumId: 'IntDirInbound', integrationCategoryEnumId: 'IntCatReturn', processedDate: ec.user.nowTimestamp, serviceParameters: groovy.json.JsonOutput.toJson([systemMessageRemoteId: systemMessageRemoteId, allowReimport: allowReimport])]"/>
 
             <set field="logData" from="[integrationExternalMessageLogId: messageLog.integrationExternalMessageLogId]"/>
 
             <!-- Run the whole service on a safe block in order to update IntegrationExternalMessageLog in case of error -->
             <script>try {</script>
 
-            <service-call name="mantle.returnmagic.ReturnMagicServices.get#ApprovedReturns" out-map="apiResponse"
-                in-map="[systemMessageRemoteId: systemMessageRemoteId, minUpdatedTime: fromDate]"/>
+            <service-call name="mantle.returnmagic.ReturnMagicServices.get#ApprovedReturns" out-map="context"
+                in-map="[systemMessageRemoteId: systemMessageRemoteId]"/>
 
             <service-call name="update#brandedonline.integration.IntegrationExternalMessageLog" transaction="force-new"
-                in-map="logData + [statusId: 'IntegrationReceived', response: apiResponse.bodyText]"/>
+                in-map="logData + [statusId: 'IntegrationReceived', response: apiResponses]"/>
 
-            <iterate list="apiResponse.moquiReturns" entry="moquiReturn">
-                <set field="messageId" from="moquiReturn.externalId"/>
-                <set field="remoteMessageId" from="moquiReturn.displayId"/>
+            <iterate list="apiResponses" entry="apiResponse">
+                <set field="messageId" from="apiResponse.confirmation"/>
+                <set field="remoteMessageId" from="apiResponse.order.number+'R'"/>
                 <set field="allowError" from="false"/>
+                <set field="messageText" from="groovy.json.JsonOutput.toJson(apiResponse)"/>
 
-                <iterate list="apiResponse.apiResponses" entry="eachReturnMagic">
-                    <if condition="eachReturnMagic.confirmation == moquiReturn.externalId">
-                        <set field="messageText" from="eachReturnMagic"/>
+                <!--<iterate list="apiResponse.apiResponses" entry="eachReturnMagic">
+                    <if condition="eachReturnMagic.confirmation == apiResponse.externalId">
+                        <set field="messageText" from="groovy.json.JsonOutput.toJson(eachReturnMagic)"/>
                         <break/>
                     </if>
-                </iterate>
+                </iterate>-->
 
                 <!-- Look for an already imported return. Each return should only be imported once -->
                 <entity-find-one entity-name="moqui.service.message.SystemMessage" value-field="importedReturn">
@@ -335,7 +301,7 @@
 
                         <set field="systemMessageId" from="importedReturn.systemMessageId"/>
                         <set field="allowError" from="true"/>
-                        <log message="***** Reimporting return magic ${externalId} with systemMessage ${systemMessageId}"/>
+                        <log message="***** Reimporting return magic ${apiResponse.confirmation} with systemMessage ${systemMessageId}"/>
 
                         <!-- If not using force-new transaction, we can get lock errors -->
                         <service-call name="update#moqui.service.message.SystemMessage" out-map="updatedMessage" transaction="force-new"
@@ -346,7 +312,7 @@
                         <service-call name="create#moqui.service.message.SystemMessage" out-map="newMessage" transaction="force-new"
                             in-map="[systemMessageRemoteId: systemMessageRemoteId, systemMessageTypeId: systemMessageTypeId,
                                 messageText: messageText, messageId: messageId, remoteMessageId: remoteMessageId, isOutgoing: 'N',
-                                statusId: 'SmsgReceived', initDate: ec.user.nowTimestamp, messageDate: moquiReturn.entryDate]"/>
+                                statusId: 'SmsgReceived', initDate: ec.user.nowTimestamp, messageDate: apiResponse.entryDate]"/>
 
                         <set field="systemMessageId" from="newMessage.systemMessageId"/>
                     </else>
@@ -371,17 +337,20 @@
         <actions>
             <entity-find-one entity-name="moqui.service.message.SystemMessage" value-field="systemMessage"/>
 
-            <set field="moquiReturn" from="new groovy.json.JsonSlurper().parseText(systemMessage.messageText)"/>
+            <set field="apiResponse" from="new groovy.json.JsonSlurper().parseText(systemMessage.messageText)"/>
+            <log message="\nThe apiResponse is ${apiResponse}\n"/>
+
+            <service-call name="mantle.returnmagic.ApiServices.map#JsonReturns" in-map="apiResponse" out-map="moquiReturn" out-map-add-to-existing="false"/>
 
             <if condition="!moquiReturn.customerPartyId">
-                <return error="true" message="The return doesn't have a valid customer ${moquiReturn}"/>
+                <return error="true" message="\nThe return with externalId ${moquiReturn.externalId} doesn't have a valid customer\n"/>
             </if>
 
             <!-- We filter out invalid items before saving the return -->
             <set field="invalidItems" from="moquiReturn.items.findAll { !it.orderItemSeqId || !it.returnReasonEnumId }"/>
 
             <if condition="invalidItems">
-                <return error="true" message="The return has the following invalid items:\n${groovy.json.JsonOutput.toJson(invalidItems)}"/>
+                <return error="true" message="\nThe return with externalId ${moquiReturn.externalId} has the following invalid items:\n${groovy.json.JsonOutput.toJson(invalidItems)}\n"/>
             </if>
 
             <!-- Look for an already created return. Only re import if the return is cancelled -->
@@ -393,14 +362,13 @@
             </entity-find-count>
 
             <if condition="existingReturns &gt; 0">
-                <return error="true" message="A return with externalId ${moquiReturn.externalId} and vendor ${moquiReturn.vendorPartyId} already exists"/>
+                <return error="true" message="\nA return with externalId ${moquiReturn.externalId} and vendor ${moquiReturn.vendorPartyId} already exists\n"/>
             </if>
 
-            <service-call name="mantle.returnmagic.ReturnMagicServices.save#NewReturn" in-map="moquiReturn" out-map="newReturn"/>
+            <service-call name="mantle.returnmagic.ReturnMagicServices.save#NewReturn" in-map="moquiReturn" out-map="newReturn" out-map-add-to-existing="false"/>
 
             <if condition="newReturn.returnId">
-                <service-call name="update#moqui.service.message.SystemMessage"
-                    in-map="[systemMessageId: systemMessageId, returnId: newReturn.returnId]"/>
+                <service-call name="update#moqui.service.message.SystemMessage" in-map="[systemMessageId: systemMessageId, returnId: newReturn.returnId]" out-map-add-to-existing="false"/>
             </if>
         </actions>
     </service>
