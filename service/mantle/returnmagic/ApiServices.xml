@@ -30,6 +30,7 @@
             <set field="url" from="new java.net.URL(remote.receiveUrl)"/>
             <set field="headerName" from="remote.authHeaderName ?: 'x-api-key'"/>
 
+            <log message="\n======= Start getting returns from Return Magic API =======\n"/>
             <script><![CDATA[
                 def restClient = ec.service.rest().
                         method(org.moqui.util.RestClient.GET).

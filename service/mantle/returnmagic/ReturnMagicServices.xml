@@ -4,25 +4,33 @@
         <in-parameters>
             <parameter name="systemMessageRemoteId" required="true"/>
             <parameter name="uri" default-value="returns.json"/>
-            <parameter name="pageParam" default-value="0">
-                <description>
-                    Pass Return Magic API the page parameter to the page to look for.
-                </description>
-            </parameter>
             <parameter name="stateParam" default-value="APPROVED">
                 <description>
                      Pass Return Magic API the state (REQUESTED, APPROVED, RECEIVED, CONTROLLED, REFUNDED, ARCHIVED, CANCELLED) parameter to be included on the call.
                      Default = APPROVED.
                 </description>
             </parameter>
-            <parameter name="prevList"/>
+            <parameter name="maxNumberOfRequest" type="Integer" default-value="100">
+                <description>
+                     Maximun number of request pages to look into the Return Magic API.
+                </description>
+            </parameter>
         </in-parameters>
         <out-parameters>
             <parameter name="bodyText"/>
         </out-parameters>
         <actions>
-            <service-call name="mantle.returnmagic.ApiServices.query#ApiGetAllReturns" in-map="context" out-map="context"/>
+            <log message="\n======= Start getting returns =======\n"/>
+            <set field="prevList" from="[]"/>
+            <script><![CDATA[ for (pageParam = 0; pageParam < maxNumberOfRequest; pageParam++) { ]]></script>
+                <service-call name="mantle.returnmagic.ApiServices.query#ApiGetAllReturns" in-map="context" out-map="context"/>
+                <script><![CDATA[
+                    if (bodyText) prevList = bodyText
+                    else bodyText = prevList
 
+                    if (bodySize < 20) break
+            } ]]></script>
+            <log message="\n======= bodyText ${bodyText} =======\n"/>
             <if condition="statusCode != 200">
                 <return error="true" message="Error querying Return Magic API: ${bodyText}"/>
             </if>
@@ -54,8 +62,6 @@
             <parameter name="systemMessageRemoteId" required="true"/>
         </in-parameters>
         <out-parameters>
-            <!--<parameter name="bodyText"/>
-            <parameter name="moquiReturns"/>-->
             <parameter name="apiResponses"/>
         </out-parameters>
         <actions>
@@ -78,27 +84,7 @@
             <set field="stateParam" from="APPROVED"/>
             <service-call name="mantle.returnmagic.ReturnMagicServices.get#Returns" out-map="context" in-map="context"/>
 
-            <!-- If the list of returns is greater than 20 we should keep looking for all - ->
-            <set field="pageParam" from="0"/>
-            <set field="context.bodySize" from="0"/>
-            <if condition="context.bodySize == 20">
-                <set field="pageParam" from="pageParam++"/>
-                <set field="prevList" from="context.bodyText"/>
-                <service-call name="mantle.returnmagic.ReturnMagicServices.get#Returns" in-map="context" out-map="outList"/>
-                <script><![CDATA[
-                    if (outList != []) {
-                        outList.each { prevList.add(${it}) }
-                    }
-                    context.bodyText = prevList
-                ]]></script>
-                <else>
-                    <set field="bodyText" from="bodyText"/>
-                </else>
-            </if>
-
-            <!- -<set field="moquiReturns" from="[]"/>-->
             <set field="apiResponses" from="[]"/>
-
             <iterate list="bodyText" entry="rawReturn">
                 <if condition="!rawReturn.states">
                     <log message="*** Return Magic with ID ${rawReturn.confirmation} has no states. Skipping!!" />
@@ -192,7 +178,7 @@
             <service-call name="mantle.order.ReturnServices.approve#Return" in-map="[returnId: returnId]"/>
         </actions>
     </service>
-    <service verb="import" noun="ReturnMagicTest">
+    <service verb="test" noun="ReturnMagic">
         <description>This service is only created for test propose, to test the import without importing</description>
         <in-parameters>
             <parameter name="systemMessageRemoteId" default-value="SpyReturnMagicRemote" required="true"/>
@@ -278,13 +264,6 @@
                 <set field="remoteMessageId" from="apiResponse.order.number+'R'"/>
                 <set field="allowError" from="false"/>
                 <set field="messageText" from="groovy.json.JsonOutput.toJson(apiResponse)"/>
-
-                <!--<iterate list="apiResponse.apiResponses" entry="eachReturnMagic">
-                    <if condition="eachReturnMagic.confirmation == apiResponse.externalId">
-                        <set field="messageText" from="groovy.json.JsonOutput.toJson(eachReturnMagic)"/>
-                        <break/>
-                    </if>
-                </iterate>-->
 
                 <!-- Look for an already imported return. Each return should only be imported once -->
                 <entity-find-one entity-name="moqui.service.message.SystemMessage" value-field="importedReturn">
