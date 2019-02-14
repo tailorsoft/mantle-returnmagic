@@ -106,7 +106,6 @@
             <parameter name="vendorPartyId" required="true"/>
         </in-parameters>
         <out-parameters>
-            <parameter name="externalId"/>
             <parameter name="originId"/>
             <parameter name="displayId"/>
             <parameter name="statusId"/>
@@ -124,9 +123,8 @@
             <!-- TODO Handle the other possible status codes -->
             <set field="returnMoquiStatus" from="[authorized: 'ReturnCreated']"/>
 
-            <set field="externalId" from="confirmation"/>
             <set field="originId" from="id"/>
-            <set field="displayId" from="order.number+'R'"/>
+            <set field="displayId" from="confirmation"/>
             <set field="statusId" from="returnMoquiStatus[status]"/>
 
             <!-- Getting all the items information -->
@@ -188,7 +186,7 @@
                 <!-- We look for the order of the item -->
                 <entity-find-one entity-name="mantle.order.OrderHeaderAndPart" value-field="orderHeader">
                     <field-map field-name="productStoreId"/>
-                    <field-map field-name="externalId" from="confirmation"/>
+                    <field-map field-name="displayId" from="confirmation"/>
                 </entity-find-one>
 
 
@@ -223,12 +221,12 @@
                         </if>
                     </then>
                     <else>
-                        <set field="description" value="Order with externalId ${confirmation} not found for ${productStoreId}"/>
+                        <set field="description" value="Order with displayId ${confirmation} not found for ${productStoreId}"/>
                     </else>
                 </if>
 
                 <script>itemList.add([
-                    externalId: confirmation,
+                    displayId: confirmation,
                     orderId: orderId,
                     rawOrderId: confirmation,
                     orderItemSeqId: orderItemSeqId,

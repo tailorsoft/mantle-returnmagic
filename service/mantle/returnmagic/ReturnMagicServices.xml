@@ -30,7 +30,7 @@
 
                     if (bodySize < 20) break
             } ]]></script>
-            <log message="\n======= bodyText ${bodyText} =======\n"/>
+            <!--<log message="\n======= bodyText ${bodyText} =======\n"/>-->
             <if condition="statusCode != 200">
                 <return error="true" message="Error querying Return Magic API: ${bodyText}"/>
             </if>
@@ -51,7 +51,6 @@
         </out-parameters>
         <actions>
             <service-call name="mantle.returnmagic.ApiServices.query#ApiGetReturnDetail" in-map="context" out-map="context"/>
-
             <if condition="statusCode != 200">
                 <return error="true" message="Error querying Return Magic API: ${bodyText}"/>
             </if>
@@ -114,7 +113,7 @@
             <parameter name="returnId"/>
         </out-parameters>
         <actions>
-            <if condition="!externalId || !customerPartyId">
+            <if condition="!displayId || !customerPartyId">
                 <return error="true" message="Incomplete return basic data"/>
             </if>
 
@@ -164,7 +163,7 @@
             </iterate>
 
             <iterate list="itemsToReturn" entry="returnItem">
-                <!-- Some items from return magic might not be valid in moqui (externalId not found, order not found, product not in order) -->
+                <!-- Some items from return magic might not be valid in moqui (displayId not found, order not found, product not in order) -->
                 <service-call name="mantle.order.ReturnServices.add#OrderItemToReturn" in-map="returnItem + [returnId: returnId]"
                     out-map="newReturnItem"/>
 
@@ -197,30 +196,30 @@
                 <log message="\nThe moquiReturn is ${moquiReturn}\n"/>
 
                 <if condition="!moquiReturn.customerPartyId">
-                    <log message="\nThe return with externalId ${moquiReturn.externalId} doesn't have a valid customer ${moquiReturn.customerPartyId}\n"/>
+                    <log message="\nThe return with displayId ${moquiReturn.displayId} doesn't have a valid customer ${moquiReturn.customerPartyId}\n"/>
                     <continue/>
                 </if>
 
                 <set field="invalidItems" from="moquiReturn.items.findAll { !it.orderItemSeqId || !it.returnReasonEnumId }"/>
 
                 <if condition="invalidItems">
-                    <log message="\nThe return with externalId ${moquiReturn.externalId} has the following invalid items:\n${groovy.json.JsonOutput.toJson(invalidItems)}\n"/>
+                    <log message="\nThe return with displayId ${moquiReturn.displayId} has the following invalid items:\n${groovy.json.JsonOutput.toJson(invalidItems)}\n"/>
                     <continue/>
                 </if>
 
                 <entity-find-count entity-name="mantle.order.return.ReturnHeader" count-field="existingReturns">
-                    <econdition field-name="externalId" from="moquiReturn.externalId"/>
+                    <econdition field-name="displayId" from="moquiReturn.displayId"/>
                     <econdition field-name="facilityId" from="moquiReturn.facilityId"/>
                     <econdition field-name="vendorPartyId" from="moquiReturn.vendorPartyId"/>
                     <econdition field-name="statusId" operator="not-equals" value="ReturnCancelled"/>
                 </entity-find-count>
 
                 <if condition="existingReturns &gt; 0">
-                    <log message="\nA return with externalId ${moquiReturn.externalId} and vendor ${moquiReturn.vendorPartyId} already exists\n"/>
+                    <log message="\nA return with displayId ${moquiReturn.displayId} and vendor ${moquiReturn.vendorPartyId} already exists\n"/>
                     <continue/>
                 </if>
 
-                <script>returnIdList.add(moquiReturn.externalId + " - " + moquiReturn.vendorPartyId)</script>
+                <script>returnIdList.add(moquiReturn.displayId + " - " + moquiReturn.vendorPartyId)</script>
             </iterate>
         </actions>
     </service>
@@ -260,8 +259,8 @@
                 in-map="logData + [statusId: 'IntegrationReceived', response: apiResponses]"/>
 
             <iterate list="apiResponses" entry="apiResponse">
-                <set field="messageId" from="apiResponse.confirmation"/>
-                <set field="remoteMessageId" from="apiResponse.order.number+'R'"/>
+                <set field="messageId" from="apiResponse.order.number"/>
+                <set field="remoteMessageId" from="apiResponse.confirmation"/>
                 <set field="allowError" from="false"/>
                 <set field="messageText" from="groovy.json.JsonOutput.toJson(apiResponse)"/>
 
@@ -322,26 +321,26 @@
             <service-call name="mantle.returnmagic.ApiServices.map#JsonReturns" in-map="apiResponse" out-map="moquiReturn" out-map-add-to-existing="false"/>
 
             <if condition="!moquiReturn.customerPartyId">
-                <return error="true" message="\nThe return with externalId ${moquiReturn.externalId} doesn't have a valid customer\n"/>
+                <return error="true" message="\nThe return with displayId ${moquiReturn.displayId} doesn't have a valid customer\n"/>
             </if>
 
             <!-- We filter out invalid items before saving the return -->
             <set field="invalidItems" from="moquiReturn.items.findAll { !it.orderItemSeqId || !it.returnReasonEnumId }"/>
 
             <if condition="invalidItems">
-                <return error="true" message="\nThe return with externalId ${moquiReturn.externalId} has the following invalid items:\n${groovy.json.JsonOutput.toJson(invalidItems)}\n"/>
+                <return error="true" message="\nThe return with displayId ${moquiReturn.displayId} has the following invalid items:\n${groovy.json.JsonOutput.toJson(invalidItems)}\n"/>
             </if>
 
             <!-- Look for an already created return. Only re import if the return is cancelled -->
             <entity-find-count entity-name="mantle.order.return.ReturnHeader" count-field="existingReturns">
-                <econdition field-name="externalId" from="moquiReturn.externalId"/>
+                <econdition field-name="displayId" from="moquiReturn.displayId"/>
                 <econdition field-name="facilityId" from="moquiReturn.facilityId"/>
                 <econdition field-name="vendorPartyId" from="moquiReturn.vendorPartyId"/>
                 <econdition field-name="statusId" operator="not-equals" value="ReturnCancelled"/>
             </entity-find-count>
 
             <if condition="existingReturns &gt; 0">
-                <return error="true" message="\nA return with externalId ${moquiReturn.externalId} and vendor ${moquiReturn.vendorPartyId} already exists\n"/>
+                <return error="true" message="\nA return with displayId ${moquiReturn.displayId} and vendor ${moquiReturn.vendorPartyId} already exists\n"/>
             </if>
 
             <service-call name="mantle.returnmagic.ReturnMagicServices.save#NewReturn" in-map="moquiReturn" out-map="newReturn" out-map-add-to-existing="false"/>
