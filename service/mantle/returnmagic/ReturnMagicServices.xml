@@ -7,7 +7,6 @@
             <parameter name="stateParam" default-value="APPROVED">
                 <description>
                      Pass Return Magic API the state (REQUESTED, APPROVED, RECEIVED, CONTROLLED, REFUNDED, ARCHIVED, CANCELLED) parameter to be included on the call.
-                     Default = APPROVED.
                 </description>
             </parameter>
             <parameter name="maxNumberOfRequest" type="Integer" default-value="100">
@@ -80,7 +79,7 @@
             <set field="vendorPartyId" from="productStore.organizationPartyId"/>
 
             <!-- Look for all the returns approved-->
-            <set field="stateParam" from="APPROVED"/>
+            <set field="context.stateParam" from="APPROVED"/>
             <service-call name="mantle.returnmagic.ReturnMagicServices.get#Returns" out-map="context" in-map="context"/>
 
             <set field="apiResponses" from="[]"/>
@@ -94,6 +93,26 @@
 
                 <script>apiResponses.add(rawReturn + returnDetail.bodyText + [productStoreId: productStore.productStoreId, facilityId: facilityId, vendorPartyId: vendorPartyId, systemMessageRemoteId: systemMessageRemoteId])</script>
             </iterate>
+        </actions>
+    </service>
+    <service verb="put" noun="ChangeStates">
+        <in-parameters>
+            <parameter name="systemMessageRemoteId" required="true"/>
+            <parameter name="uri" default-value="returns.json"/>
+            <parameter name="id">
+                <description>
+                    Pass Return Magic API the ID of the return as parameter to be included on the call.
+                </description>
+            </parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="bodyText"/>
+        </out-parameters>
+        <actions>
+            <service-call name="mantle.returnmagic.ApiServices.query#ApiGetReturnDetail" in-map="context" out-map="context"/>
+            <if condition="statusCode != 200">
+                <return error="true" message="Error querying Return Magic API: ${bodyText}"/>
+            </if>
         </actions>
     </service>
     <service verb="save" noun="NewReturn">
@@ -223,7 +242,7 @@
             </iterate>
         </actions>
     </service>
-    <service verb="import" noun="ReturnMagicReturns">
+    <service verb="import" noun="ReturnMagicReturns" authenticate="anonymous-all">
         <in-parameters>
             <parameter name="systemMessageRemoteId" default-value="SpyReturnMagicRemote" required="true"/>
             <parameter name="systemMessageTypeId" default-value="ReturnMagicDataImport"/>

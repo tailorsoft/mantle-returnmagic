@@ -4,12 +4,12 @@
         <in-parameters>
             <parameter name="systemMessageRemoteId" required="true"/>
             <parameter name="uri" default-value="returns.json"/>
-            <parameter name="pageParam">
+            <parameter name="pageParam" required="true">
                 <description>
                     Pass Return Magic API the page parameter to the page to look for.
                 </description>
             </parameter>
-            <parameter name="stateParam">
+            <parameter name="stateParam" required="true">
                 <description>
                     Pass Return Magic API the state (REQUESTED, APPROVED, RECEIVED, CONTROLLED, REFUNDED, ARCHIVED, CANCELLED) parameter to be included on the call.
                 </description>
@@ -53,7 +53,7 @@
         <in-parameters>
             <parameter name="systemMessageRemoteId" required="true"/>
             <parameter name="uri" default-value="returns.json"/>
-            <parameter name="id">
+            <parameter name="id" required="true">
                 <description>
                     Pass Return Magic API the ID of the return as parameter to be included on the call.
                 </description>
@@ -85,6 +85,49 @@
                 context.statusCode = restResponse.statusCode
                 context.bodyText = restResponse.jsonObject()
                 context.bodySize = bodyText.size()
+                ]]>
+            </script>
+        </actions>
+    </service>
+    <service verb="put" noun="ApiChangeReturnState">
+        <in-parameters>
+            <parameter name="systemMessageRemoteId" required="true"/>
+            <parameter name="uri" default-value="returns.json"/>
+            <parameter name="id" required="true">
+                <description>
+                    Pass Return Magic API the ID of the return as parameter to be included on the call.
+                </description>
+            </parameter>
+            <parameter name="stateParam" required="true">
+                <description>
+                    Pass Return Magic API the state (REQUESTED, APPROVED, RECEIVED, CONTROLLED, REFUNDED, ARCHIVED, CANCELLED) parameter to be included on the call in order to change the state.
+                </description>
+            </parameter>
+        </in-parameters>
+        <out-parameters>
+            <parameter name="statusCode" type="Integer"/>
+            <parameter name="bodyText"/>
+        </out-parameters>
+        <actions>
+            <entity-find-one entity-name="moqui.service.message.SystemMessageRemote" value-field="remote"/>
+            <if condition="!remote">
+                <return error="true" message="No systemMessageRemote found for id ${systemMessageRemoteId}"/>
+            </if>
+
+            <set field="url" from="new java.net.URL(remote.receiveUrl)"/>
+            <set field="headerName" from="remote.authHeaderName ?: 'x-api-key'"/>
+
+            <script><![CDATA[
+                def restClient = ec.service.rest().
+                        method(org.moqui.util.RestClient.GET).
+                        addHeader(headerName, remote.password)
+                restClient.uri().protocol(url.getProtocol()).
+                        host(url.getHost()).
+                        port(url.getDefaultPort()).
+                        path(url.getPath()+'/'+id+'/'+stateParam).build()
+                org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
+                context.statusCode = restResponse.statusCode
+                context.bodyText = restResponse.jsonObject()
                 ]]>
             </script>
         </actions>

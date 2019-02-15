@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<entity-facade-xml>
+    <moqui.service.job.ServiceJob jobName="Muckboot_Uk_ReturnMagicFetching" paused="N" description="Muckboot UK Return Magic import" serviceName="mantle.returnmagic.ReturnMagicServices.import#ReturnMagicReturns" cronExpression="0 0/15 * * * ?" expireLockTime="15"/>
+</entity-facade-xml>
+
