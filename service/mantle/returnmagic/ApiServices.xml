@@ -98,7 +98,7 @@
                     Pass Return Magic API the ID of the return as parameter to be included on the call.
                 </description>
             </parameter>
-            <parameter name="stateParam" required="true">
+            <parameter name="newState" required="true">
                 <description>
                     Pass Return Magic API the state (REQUESTED, APPROVED, RECEIVED, CONTROLLED, REFUNDED, ARCHIVED, CANCELLED) parameter to be included on the call in order to change the state.
                 </description>
@@ -116,18 +116,23 @@
 
             <set field="url" from="new java.net.URL(remote.receiveUrl)"/>
             <set field="headerName" from="remote.authHeaderName ?: 'x-api-key'"/>
+            <set field="data" from="[state: newState, metadata: '{}']"/>
 
             <script><![CDATA[
-                def restClient = ec.service.rest().
-                        method(org.moqui.util.RestClient.GET).
-                        addHeader(headerName, remote.password)
+                org.moqui.util.RestClient restClient = ec.service.rest().
+                        method(org.moqui.util.RestClient.PUT).
+                        addHeader(headerName, remote.password).
+                        addHeader("Content-Type", "application/json").
+                        jsonObject(data)
+
                 restClient.uri().protocol(url.getProtocol()).
                         host(url.getHost()).
                         port(url.getDefaultPort()).
-                        path(url.getPath()+'/'+id+'/'+stateParam).build()
+                        path(url.getPath()+'/'+id).path('states').build()
+
                 org.moqui.util.RestClient.RestResponse restResponse = restClient.call()
-                context.statusCode = restResponse.statusCode
-                context.bodyText = restResponse.jsonObject()
+                statusCode = restResponse.statusCode.toString()
+                bodyText = restResponse.jsonObject().toString()
                 ]]>
             </script>
         </actions>

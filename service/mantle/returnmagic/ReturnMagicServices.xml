@@ -4,7 +4,7 @@
         <in-parameters>
             <parameter name="systemMessageRemoteId" required="true"/>
             <parameter name="uri" default-value="returns.json"/>
-            <parameter name="stateParam" default-value="APPROVED">
+            <parameter name="stateParam" default-value="REQUESTED">
                 <description>
                      Pass Return Magic API the state (REQUESTED, APPROVED, RECEIVED, CONTROLLED, REFUNDED, ARCHIVED, CANCELLED) parameter to be included on the call.
                 </description>
@@ -55,7 +55,7 @@
             </if>
         </actions>
     </service>
-    <service verb="get" noun="ApprovedReturns">
+    <service verb="get" noun="RequestedReturns">
         <in-parameters>
             <parameter name="systemMessageRemoteId" required="true"/>
         </in-parameters>
@@ -79,8 +79,7 @@
             <set field="vendorPartyId" from="productStore.organizationPartyId"/>
 
             <!-- Look for all the returns approved-->
-            <set field="context.stateParam" from="APPROVED"/>
-            <service-call name="mantle.returnmagic.ReturnMagicServices.get#Returns" out-map="context" in-map="context"/>
+            <service-call name="mantle.returnmagic.ReturnMagicServices.get#Returns" out-map="context" in-map="context + [stateParam: 'REQUESTED']"/>
 
             <set field="apiResponses" from="[]"/>
             <iterate list="bodyText" entry="rawReturn">
@@ -99,9 +98,14 @@
         <in-parameters>
             <parameter name="systemMessageRemoteId" required="true"/>
             <parameter name="uri" default-value="returns.json"/>
-            <parameter name="id">
+            <parameter name="id" required="true">
                 <description>
                     Pass Return Magic API the ID of the return as parameter to be included on the call.
+                </description>
+            </parameter>
+            <parameter name="newState" required="true">
+                <description>
+                    Pass Return Magic API the state (REQUESTED, APPROVED, RECEIVED, CONTROLLED, REFUNDED, ARCHIVED, CANCELLED) parameter to be included on the call in order to change the state.
                 </description>
             </parameter>
         </in-parameters>
@@ -109,7 +113,7 @@
             <parameter name="bodyText"/>
         </out-parameters>
         <actions>
-            <service-call name="mantle.returnmagic.ApiServices.query#ApiGetReturnDetail" in-map="context" out-map="context"/>
+            <service-call name="mantle.returnmagic.ApiServices.put#ApiChangeReturnState" in-map="context" out-map="context"/>
             <if condition="statusCode != 200">
                 <return error="true" message="Error querying Return Magic API: ${bodyText}"/>
             </if>
@@ -170,7 +174,7 @@
             <!-- We need to calculate what other items need to be added to the return (tax, discount, etc.) -->
             <iterate list="items" entry="returnProduct">
                 <if condition="returnProduct.totalRefundAmount">
-                    <service-call name="mantle.returnmagic.ApiServices.get#ApiGetReturnDetail" in-map="returnProduct" out-map="extraItems"/>
+                    <service-call name="mantle.returnmagic.ApiServices.query#ApiGetReturnDetail" in-map="returnProduct" out-map="extraItems"/>
 
                     <set field="returnProduct.responseAmount" from="extraItems.responseAmount"/>
                     <if condition="extraItems.itemChildren">
@@ -205,7 +209,7 @@
             <parameter name="returnIdList"/>
         </out-parameters>
         <actions>
-            <service-call name="mantle.returnmagic.ReturnMagicServices.get#ApprovedReturns" in-map="context"
+            <service-call name="mantle.returnmagic.ReturnMagicServices.get#RequestedReturns" in-map="context"
                 out-map="context"/>
 
             <set field="returnIdList" from="[]"/>
@@ -271,7 +275,7 @@
             <!-- Run the whole service on a safe block in order to update IntegrationExternalMessageLog in case of error -->
             <script>try {</script>
 
-            <service-call name="mantle.returnmagic.ReturnMagicServices.get#ApprovedReturns" out-map="context"
+            <service-call name="mantle.returnmagic.ReturnMagicServices.get#RequestedReturns" out-map="context"
                 in-map="[systemMessageRemoteId: systemMessageRemoteId]"/>
 
             <service-call name="update#brandedonline.integration.IntegrationExternalMessageLog" transaction="force-new"
@@ -365,7 +369,9 @@
             <service-call name="mantle.returnmagic.ReturnMagicServices.save#NewReturn" in-map="moquiReturn" out-map="newReturn" out-map-add-to-existing="false"/>
 
             <if condition="newReturn.returnId">
-                <service-call name="update#moqui.service.message.SystemMessage" in-map="[systemMessageId: systemMessageId, returnId: newReturn.returnId]" out-map-add-to-existing="false"/>
+                <service-call name="update#moqui.service.message.SystemMessage" in-map="[systemMessageId: systemMessageId, returnId: newReturn.returnId]"/>
+                <service-call name="mantle.returnmagic.ReturnMagicServices.put#ChangeStates" in-map="[systemMessageRemoteId: 'SpyReturnMagicRemote',id: moquiReturn.originId, newState: 'APPROVED']"
+                out-map="context"/>
             </if>
         </actions>
     </service>
